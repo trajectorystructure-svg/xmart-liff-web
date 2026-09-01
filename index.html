@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Xmart 門市與總部雙向營運協作平台</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- 引入拆分出來的 CSS 樣式表 -->
+  <link rel="stylesheet" href="css/main.css">
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    /* 在保留原本外部 CSS 的前提下，新增大頭貼專屬的發光微動畫 */
+    .profile-pic-wrapper {
+      position: relative; width: 80px; height: 80px; margin: 0 auto 15px; border-radius: 50%;
+      background: linear-gradient(45deg, #6a1b9a, #ec4899); padding: 3px;
+      box-shadow: 0 4px 15px rgba(106, 27, 154, 0.4);
+      animation: pulse-glow 2s infinite alternate;
+    }
+    .profile-pic-wrapper img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; border: 2px solid #fff; background-color: #fff; }
+    @keyframes pulse-glow { 0% { box-shadow: 0 0 0 0 rgba(106, 27, 154, 0.4); } 100% { box-shadow: 0 0 0 10px rgba(106, 27, 154, 0); } }
+  </style>
+</head>
+<body>
+  <div id="toast-container"></div>
+  
+  <div id="lightboxOverlay" onclick="closeLightbox()"><img id="lightboxImg" src="" alt="Enlarged Photo"></div>
+
+  <!-- 🎨 全螢幕相片繪圖標記視窗 -->
+  <div id="markupModal">
+    <div id="markupModalTitle" class="text-white fw-bold mb-2" data-en="✏️ Photo Markup" data-zh="✏️ 照片畫布標記">✏️ 照片畫布標記 (Photo Markup)</div>
+    <canvas id="markupCanvas"></canvas>
+    <div class="d-flex gap-2 w-100 mt-3" style="max-width: 400px;">
+      <button type="button" class="btn btn-outline-light flex-fill" onclick="clearMarkupCanvas()" data-en="🔄 Clear" data-zh="🔄 清除畫布">🔄 清除畫布</button>
+      <button type="button" class="btn btn-secondary flex-fill" onclick="closeMarkupModal()" data-en="Cancel" data-zh="取消">取消</button>
+      <button type="button" class="btn btn-primary flex-fill" onclick="saveMarkupCanvas()" data-en="💾 Apply" data-zh="💾 儲存套用">💾 儲存套用</button>
+    </div>
+  </div>
+
+  <div id="fullscreenOverlay">
+    <div class="spinner-border text-primary overlay-spinner" role="status"></div>
+    <h5 id="overlayText" class="fw-bold text-primary">System Processing...</h5>
+    <div class="progress mt-3" style="width: 75%; height: 22px; border-radius: 10px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);">
+      <div id="overlayProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 0%;">0%</div>
+    </div>
+  </div>
+  
+  <div class="container" style="max-width: 600px;">
+    <div class="text-center mb-4 mt-2">
+      <img src="https://www.xmart-group.com/storage/2025/04/logo-1.png" alt="Xmart Group Logo" class="company-logo">
+      <h4 class="fw-bold mb-1 text-white" style="text-shadow: 0 2px 14px rgba(0,0,0,0.6);">📋 HQ-Store Operations Hub</h4>
+      <h6 class="text-light small opacity-90" style="text-shadow: 0 1px 8px rgba(0,0,0,0.5);" data-en="Xmart Operations Hub" data-zh="Xmart 門市與總部雙向營運協作平台">Xmart Operations Hub</h6>
+      
+      <div class="d-flex justify-content-center mt-2">
+        <div class="lang-pill-box">
+          <button type="button" id="langBtnEn" class="lang-btn active" onclick="setLanguage('en')">EN</button>
+          <button type="button" id="langBtnZh" class="lang-btn" onclick="setLanguage('zh')">繁體</button>
+        </div>
+      </div>
+    </div>
+    
+    <div id="systemLoadingBox" class="card p-4 text-center">
+      <div class="spinner-border text-primary mx-auto mb-3" role="status" style="width: 2.5rem; height: 2.5rem;"></div>
+      <h6 class="fw-bold text-primary mb-0" data-en="Loading System..." data-zh="系統載入中...">Loading System... / 系統載入中...</h6>
+    </div>
+
+    <!-- 📁 離線暫存草稿列 -->
+    <div id="draftBanner" class="draft-banner d-flex justify-content-between align-items-center hidden">
+      <div><strong id="draftBannerTitle" data-en="📁 Offline Draft Found" data-zh="📁 發現離線暫存草稿">📁 發現離線暫存草稿</strong><br><small id="draftBannerInfo"></small></div>
+      <button type="button" class="btn btn-sm btn-warning font-bold" onclick="restoreDraft()" data-en="Load Draft" data-zh="讀取草稿">讀取草稿</button>
+    </div>
+
+    <!-- 👤 綁定卡片 (新增大頭貼與暱稱) -->
+    <div id="loginSection" class="card p-4 text-center hidden">
+      <div class="profile-pic-wrapper mb-3 hidden" id="profilePicWrapper">
+        <img id="profileImage" src="" alt="Profile Picture">
+      </div>
+      <h5 class="fw-bold text-primary mb-1" id="loginGreeting" data-en="Initial Setup" data-zh="首次使用帳號開通">Initial Setup</h5>
+      <p class="text-muted small mb-4" data-en="Please set your real name and store(s)." data-zh="為確保資料正確，請輸入真實姓名並選擇負責的門市：">為確保資料正確，請輸入真實姓名並選擇負責的門市：</p>
+      
+      <input type="text" id="regNameInput" class="form-control mb-3 text-center fw-bold" data-placeholder-en="Your Real Name" data-placeholder-zh="請輸入真實姓名" placeholder="Your Real Name">
+      
+      <label class="form-label fw-bold text-dark small d-block text-start mb-2" data-en="Assigned Stores (Multiple allowed):" data-zh="負責門市 (可複選)：">Assigned Stores (Multiple allowed):</label>
+      <div id="storeCheckboxGroup" class="d-flex flex-wrap gap-2 mb-3"></div>
+      
+      <div class="form-check text-start mb-3 ms-1">
+        <input class="form-check-input" type="checkbox" id="isHqCheckbox">
+        <label class="form-check-label small text-muted fw-bold" for="isHqCheckbox" data-en="I am HQ Staff" data-zh="我是總部人員 (HQ Staff)">I am HQ Staff</label>
+      </div>
+
+      <button type="button" id="loginBtn" class="btn btn-primary w-100 fw-bold" onclick="submitRegistration()" data-en="Complete Setup" data-zh="完成設定並開啟">Complete Setup</button>
+    </div>
+    
+    <div id="mainSystem" class="hidden">
+      <div class="alert alert-info d-flex justify-content-between align-items-center mb-4 p-2 px-3 shadow-sm" role="alert">
+        <div>
+          <span class="badge-soft badge-soft-purple me-2" data-en="Logged in as" data-zh="登入身分">Logged in as</span>
+          <strong id="displayEmpName" class="text-dark">Loading...</strong>
+          <small id="displayStoreName" class="text-muted ms-1"></small>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-danger px-2 py-1 ms-2" style="font-size: 0.75rem; border-radius: 8px;" onclick="resetAccount()" data-en="Reset" data-zh="🔄 重設">🔄 重設</button>
+      </div>
+      
+      <div class="d-flex justify-content-center mb-4 gap-2">
+        <button type="button" class="btn btn-primary flex-fill" onclick="switchMode('new')" data-en="➕ Add" data-zh="➕ 新增巡檢">➕ Add</button>
+        <button type="button" class="btn btn-success flex-fill" onclick="switchMode('update')" data-en="🔄 Update" data-zh="🔄 更新進度">🔄 Update</button>
+      </div>
+      
+      <div id="newSection" class="card p-4 hidden">
+        <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3" style="border-bottom: 1px solid var(--color-border-light) !important;">
+          <h5 class="fw-bold text-primary mb-0" data-en="Add New Issue" data-zh="新增巡檢異常">Add New Issue</h5>
+          <button type="button" id="saveDraftBtn" class="btn btn-sm btn-outline-secondary font-bold" onclick="saveCurrentAsDraft()" data-en="💾 Save Draft" data-zh="💾 暫存草稿">💾 暫存草稿</button>
+        </div>
+        <div id="newStoreSelectWrapper"><select id="newStoreSelect" class="form-select mb-3 shadow-sm"></select></div>
+        
+        <div id="issueContainer">
+          <div class="issue-item border p-3 mb-3 relative">
+            <label class="form-label fw-bold text-dark" data-en="Category" data-zh="類別">Category</label>
+            <select class="form-select mb-3 category-input"><option>Loading...</option></select>
+            <label class="form-label fw-bold text-dark"><span data-en="Issue Description" data-zh="具體問題描述">Issue Description</span> <span class="text-danger">*</span></label>
+            <textarea class="form-control mb-3 desc-input" rows="2" data-placeholder-en="Required (e.g., AC leaking...)" data-placeholder-zh="必填 (例如：冷氣漏水...)" placeholder="Required (e.g., AC leaking...)"></textarea>
+            <label class="form-label fw-bold text-dark" data-en="On-site Photos (Max 3)" data-zh="現場照片 (最多 3 張)">On-site Photos (Max 3)</label>
+            <div class="photo-upload-wrapper mb-2">
+              <div class="d-flex gap-2 mb-2">
+                <button type="button" class="btn btn-sm btn-outline-primary flex-fill fw-bold" onclick="triggerPhotoInput(this, 'camera')" data-en="📷 Take Photo" data-zh="📷 現場拍照">📷 Take Photo</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill fw-bold" onclick="triggerPhotoInput(this, 'album')" data-en="🖼️ Select Album" data-zh="🖼️ 從相簿選擇">🖼️ Select Album</button>
+              </div>
+              <input type="file" class="photo-input hidden" accept="image/png, image/jpeg, image/heic, image/webp" multiple onchange="handleMultiPhotoSelect(this)">
+              <div class="preview-gallery"></div>
+            </div>
+            <div class="text-end mt-2"><button type="button" class="btn btn-sm btn-outline-danger remove-btn hidden" onclick="removeIssueRow(this)" data-en="🗑️ Remove Item" data-zh="🗑️ 移除此項">🗑️ Remove Item</button></div>
+          </div>
+        </div>
+        
+        <div id="newSectionControls">
+          <button type="button" class="btn btn-outline-primary mb-2 fw-bold border-2 w-100" onclick="addIssueRow()" data-en="➕ Add Next Issue" data-zh="➕ 新增下一筆異常">➕ Add Next Issue</button>
+          <div class="sticky-bottom-bar"><button type="button" id="submitNewBtn" class="btn btn-primary w-100 shadow-lg" onclick="submitNew()" data-en="📤 Submit All Issues" data-zh="📤 送出所有異常">📤 Submit All Issues</button></div>
+        </div>
+      </div>
+      
+      <div id="updateSection" class="card p-4 hidden">
+        <h5 class="fw-bold border-bottom pb-2 mb-3 text-success" style="border-bottom: 1px solid var(--color-border-light) !important;" data-en="Update Status" data-zh="更新處理進度">Update Status</h5>
+        <div id="updateStoreSelectWrapper"><select id="updateStoreSelect" class="form-select mb-3 shadow-sm" onchange="fetchPending()"></select></div>
+        <div id="pendingContainer">
+          <div class="text-center p-4 rounded border border-dashed mt-3" id="initialPendingMessage" style="background: rgba(255,255,255,0.6); border-radius: var(--radius-md);">
+            <p class="text-muted mb-0" data-en="Please select a store above to load pending issues." data-zh="請選擇上方門市以載入待處理案件。">Please select a store above to load pending issues.</p>
+          </div>
+        </div>
+        <div class="sticky-bottom-bar"><button type="button" id="saveUpdateBtn" class="btn btn-success w-100 shadow-lg hidden" onclick="submitUpdates()" data-en="💾 Save Updates" data-zh="💾 儲存進度更新">💾 Save Updates</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 引入拆分出來的 JS 邏輯腳本 (順序很重要) -->
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/canvas.js"></script>
+  <script src="js/draft.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
